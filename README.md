@@ -21,7 +21,7 @@
    ```bash
    git clone https://github.com/username/task-scheduler-api.git
    cd task-scheduler-api
-   
+
 2. Установите зависимости:
     ```bash
     go mod tidy
@@ -68,7 +68,4 @@ go run main.go
 
 ## Тестирование
 
-для запуска тестов:
-
-    ```bash
     go test ./tests
