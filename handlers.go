@@ -9,16 +9,11 @@ import (
 	"time"
 )
 
+const limit = 50
+
 // Task представляет задачу
 type Task struct {
-	Date    string `json:"date"`
-	Title   string `json:"title"`
-	Comment string `json:"comment"`
-	Repeat  string `json:"repeat"`
-}
-
-type TaskWithID struct {
-	ID      string `json:"id"`
+	ID      string `json:"id,omitempty"`
 	Date    string `json:"date"`
 	Title   string `json:"title"`
 	Comment string `json:"comment"`
@@ -33,7 +28,7 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	dateParam := r.URL.Query().Get("date")
 
 	// Проверка и парсинг параметра now
-	now, err := time.Parse("20060102", nowParam)
+	now, err := time.Parse(DateFormat, nowParam)
 	if err != nil {
 		http.Error(w, "Invalid 'now' date format, must be YYYYMMDD", http.StatusBadRequest)
 		return
@@ -46,8 +41,9 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ответ с результатом
-	w.Write([]byte(nextDate))
+	if _, err := w.Write([]byte(nextDate)); err != nil {
+		log.Printf("Response writing error: %v", err)
+	}
 }
 
 func addTaskHandler(w http.ResponseWriter, r *http.Request) {
@@ -71,13 +67,13 @@ func addTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Определение текущей даты
 	now := time.Now()
-	today := now.Format(TimeFormat)
+	today := now.Format(DateFormat)
 
 	// Проверка и обработка поля date
 	if task.Date == "" {
 		task.Date = today
 	} else {
-		parsedDate, err := time.Parse(TimeFormat, task.Date)
+		parsedDate, err := time.Parse(DateFormat, task.Date)
 		if err != nil {
 			sendErrorResponse(w, "Date is in an incorrect format")
 			return
@@ -144,51 +140,38 @@ func sendErrorResponse(w http.ResponseWriter, errorMessage string) {
 }
 
 func getTasksHandler(w http.ResponseWriter, r *http.Request) {
-	// Выполняем запрос для подсчета задач в таблице
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM scheduler").Scan(&count)
+	rows, err := db.Query(fmt.Sprintf(`
+		SELECT id, date, title, comment, repeat
+		FROM scheduler
+		ORDER BY date ASC
+		LIMIT %d
+	`, limit))
 	if err != nil {
-		log.Printf("Error counting tasks in database: %v", err)
-		sendErrorResponse(w, "Error retrieving tasks count from database")
+		log.Printf("Database query error: %v", err)
+		sendErrorResponse(w, "Error retrieving tasks from database")
 		return
 	}
+	defer rows.Close()
 
-	// Инициализация массива задач, даже если их нет
-	tasks := []TaskWithID{}
+	tasks := []Task{}
 
-	// Если в таблице есть задачи, выполняем запрос для их получения
-	if count > 0 {
-		rows, err := db.Query(`
-			SELECT id, date, title, comment, repeat
-			FROM scheduler
-			ORDER BY date ASC
-			LIMIT 50
-		`)
+	// Заполнение массива задач
+	for rows.Next() {
+		var task Task
+		err := rows.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
 		if err != nil {
-			log.Printf("Database query error: %v", err)
-			sendErrorResponse(w, "Error retrieving tasks from database")
+			log.Printf("Error scanning row: %v", err)
+			sendErrorResponse(w, "Error reading tasks from database")
 			return
 		}
-		defer rows.Close()
+		tasks = append(tasks, task)
+	}
 
-		// Заполняем массив задач, если записи найдены
-		for rows.Next() {
-			var task TaskWithID
-			err := rows.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
-			if err != nil {
-				log.Printf("Error scanning row: %v", err)
-				sendErrorResponse(w, "Error reading tasks from database")
-				return
-			}
-			tasks = append(tasks, task)
-		}
-
-		// Проверка на наличие ошибок после завершения итерации
-		if err = rows.Err(); err != nil {
-			log.Printf("Row iteration error: %v", err)
-			sendErrorResponse(w, "Error iterating tasks")
-			return
-		}
+	// Проверка на наличие ошибок после завершения итерации
+	if err = rows.Err(); err != nil {
+		log.Printf("Row iteration error: %v", err)
+		sendErrorResponse(w, "Error iterating tasks")
+		return
 	}
 
 	// Формирование JSON-ответа
@@ -197,8 +180,7 @@ func getTasksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
+	if err = json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("JSON encoding error: %v", err)
 		sendErrorResponse(w, "Error encoding tasks to JSON")
 		return
@@ -212,7 +194,7 @@ func getTaskByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var task TaskWithID
+	var task Task
 	err := db.QueryRow(`
 		SELECT id, date, title, comment, repeat
 		FROM scheduler
@@ -244,7 +226,7 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var task TaskWithID
+	var task Task
 	err := json.NewDecoder(r.Body).Decode(&task)
 	if err != nil {
 		http.Error(w, "JSON Deserialization Error", http.StatusBadRequest)
@@ -263,9 +245,9 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 	// Проверка и обработка поля date
 	now := time.Now()
 	if task.Date == "" {
-		task.Date = now.Format(TimeFormat)
+		task.Date = now.Format(DateFormat)
 	} else {
-		parsedDate, err := time.Parse(TimeFormat, task.Date)
+		parsedDate, err := time.Parse(DateFormat, task.Date)
 		if err != nil {
 			sendErrorResponse(w, "Date is in an incorrect format")
 			return
@@ -314,7 +296,7 @@ func markTaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Извлечение задачи из базы данных
-	var task TaskWithID
+	var task Task
 	err := db.QueryRow(`
 		SELECT id, date, title, comment, repeat
 		FROM scheduler

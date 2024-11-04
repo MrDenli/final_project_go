@@ -9,7 +9,7 @@ import (
 )
 
 // Определение формата даты, используемого в программе
-const TimeFormat = "20060102"
+const DateFormat = "20060102"
 
 // NextDate вычисляет следующую дату для задачи с базовыми правилами
 func NextDate(now time.Time, date string, repeat string) (string, error) {
@@ -18,13 +18,13 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 	}
 
 	// Проверка формата даты
-	taskDate, err := time.Parse(TimeFormat, date)
+	taskDate, err := time.Parse(DateFormat, date)
 	if err != nil {
 		return "", fmt.Errorf("incorrect date: %v", err)
 	}
 
 	if repeat == "d 1" && !taskDate.After(now) {
-		return now.Format(TimeFormat), nil
+		return now.Format(DateFormat), nil
 	}
 
 	for {
@@ -46,7 +46,7 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 
 		// Проверяем, превышает ли новая дата текущую дату
 		if taskDate.After(now) {
-			return taskDate.Format(TimeFormat), nil
+			return taskDate.Format(DateFormat), nil
 		}
 	}
 }
